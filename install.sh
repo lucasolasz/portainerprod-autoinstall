@@ -42,37 +42,39 @@ echo
 read -p "Tudo certo? (y/n): " confirma
 [[ "$confirma" != "y" && "$confirma" != "Y" ]] && echo -e "${RED}Cancelado.${NC}" && exit 0
 
-# Instalar Docker se não existir (com sudo para compatibilidade)
+# Instalar Docker + garantir permissão
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}Instalando Docker...${NC}"
     curl -fsSL https://get.docker.com | sudo sh > /dev/null 2>&1 &
     spinner $!
-    sudo usermod -aG docker $USER
-    newgrp docker <<EOF
 fi
 
-# Iniciar Swarm
+# Tudo a partir daqui roda com permissão docker (newgrp correto)
+sudo usermod -aG docker $USER
+newgrp docker <<'EOF'
+
+# Iniciar Swarm se necessário
 if ! docker info | grep -q "Swarm: active"; then
     echo -e "${YELLOW}Inicializando Docker Swarm...${NC}"
-    docker swarm init --advertise-addr $(hostname -I | awk '{print $1}') > /dev/null 2>&1
+    docker swarm init --advertise-addr $(hostname -I | awk '{print $1}') > /dev/null 2>&1 || true
 fi
 
-# Criar pasta de trabalho
+# Diretório de trabalho
 mkdir -p ~/portainerprod && cd ~/portainerprod
 
 # .env
-cat > .env <<EOF
+cat > .env <<ENV
 LETSENCRYPT_EMAIL=$email
 PORTAINER_DOMAIN=$portainer_domain
 EDGE_DOMAIN=$edge_domain
-EOF
+ENV
 
 # Rede e volume
 echo -e "${YELLOW}Criando rede e volume...${NC}"
 docker network create --driver overlay swarm_network 2>/dev/null || true
 docker volume create volume_swarm_traefik_acme 2>/dev/null || true
 
-# traefik-stack.yml (YAML corrigido)
+# traefik-stack.yml
 cat > traefik-stack.yml <<'EOF'
 version: "3.8"
 services:
@@ -124,7 +126,7 @@ volumes:
     external: true
 EOF
 
-# portainer-stack.yml (YAML corrigido)
+# portainer-stack.yml
 cat > portainer-stack.yml <<EOF
 version: "3.8"
 services:
@@ -164,23 +166,21 @@ volumes:
   portainer_data:
 EOF
 
-# Subir stacks (sem silenciar para debug)
+# Deploy
 echo -e "${YELLOW}Subindo Traefik...${NC}"
-docker stack deploy -c traefik-stack.yml traefik &
-spinner $!
-
+docker stack deploy -c traefik-stack.yml traefik
 sleep 12
 
 echo -e "${YELLOW}Subindo Portainer + Agent...${NC}"
-docker stack deploy -c portainer-stack.yml portainer &
-spinner $!
+docker stack deploy -c portainer-stack.yml portainer
 
-# Verificação final
-sleep 5
-echo -e "${YELLOW}Verificando stacks...${NC}"
+# Verificação
+echo -e "${YELLOW}Status final:${NC}"
 docker stack ls
-echo -e "${YELLOW}Containers rodando:${NC}"
-docker stack ps traefik portainer
+docker service ls
+
+EOF
+# ← FIM DO newgrp (agora está fechado corretamente)
 
 clear
 echo -e "${GREEN}Instalação concluída com sucesso!${NC}"
@@ -190,4 +190,3 @@ echo -e "Edge Stack → https://$edge_domain"
 echo -e "${GREEN}════════════════════════════════════${NC}"
 echo -e "\n${BLUE}Aguarde 3-5 minutos para os certificados SSL.${NC}"
 echo -e "${BLUE}Depois acesse o Portainer e crie seu admin.${NC}"
-echo -e "${BLUE}Se algo falhou, rode: docker stack ps traefik${NC}"

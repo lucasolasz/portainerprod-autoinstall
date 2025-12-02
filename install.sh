@@ -1,240 +1,117 @@
 #!/bin/bash
 
-# Cores
-GREEN='\e[32m'
-YELLOW='\e[33m'
-RED='\e[31m'
-BLUE='\e[34m'
-NC='\e[0m'
+echo "===== CONFIGURAÇÃO AUTOMÁTICA DO TRAEFIK ====="
 
-# Função para mostrar spinner de carregamento
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
+# ------------------------------
+# COLETAR DADOS DO USUÁRIO
+# ------------------------------
+read -p "Digite o email para Let's Encrypt: " TRAEFIK_EMAIL
+read -p "Digite o domínio para o dashboard Traefik (ex: traefik.seudominio.com): " TRAEFIK_HOST
 
-# Função para verificar requisitos do sistema
-check_system_requirements() {
-    echo -e "${BLUE}Verificando requisitos do sistema...${NC}"
-    
-    # Verificar espaço em disco (em GB, removendo a unidade 'G')
-    local free_space=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G')
-    if [ "$free_space" -lt 10 ]; then
-        echo -e "${RED}❌ Erro: Espaço em disco insuficiente. Mínimo requerido: 10GB${NC}"
-        return 1
-    fi
-    
-    # # Verificar memória RAM
-    # local total_mem=$(free -g | awk 'NR==2 {print $2}')
-    # if [ $total_mem -lt 2 ]; then
-    #     echo -e "${RED}❌ Erro: Memória RAM insuficiente. Mínimo requerido: 2GB${NC}"
-    #     return 1
-    # fi
-    
-    echo -e "${GREEN}✅ Requisitos do sistema atendidos${NC}"
-    return 0
-}
+echo "Digite a senha para acessar o dashboard:"
+read -s PASSWORD
+echo
 
-# Logo animado
-show_animated_logo() {
-    clear
-    echo -e "${GREEN}"
-    echo -e "  _____        _____ _  __  _________     _______  ______ ____   ____ _______ "
-    echo -e " |  __ \ /\   / ____| |/ / |__   __\ \   / /  __ \|  ____|  _ \ / __ \__   __|"
-    echo -e " | |__) /  \ | |    | ' /     | |   \ \_/ /| |__) | |__  | |_) | |  | | | |   "
-    echo -e " |  ___/ /\ \| |    |  <      | |    \   / |  ___/|  __| |  _ <| |  | | | |   "
-    echo -e " | |  / ____ \ |____| . \     | |     | |  | |    | |____| |_) | |__| | | |   "
-    echo -e " |_| /_/    \_\_____|_|\_\    |_|     |_|  |_|    |______|____/ \____/  |_|   "
-    echo -e "${NC}"
-    sleep 1
-}
+# ------------------------------
+# GERAR HASH DA SENHA
+# ------------------------------
+echo "Gerando senha criptografada..."
+HASH=$(htpasswd -nb admin "$PASSWORD")
+echo "Senha gerada: $HASH"
 
-# Função para mostrar um banner colorido
-function show_banner() {
-    echo -e "${GREEN}=============================================================================="
-    echo -e "=                                                                            ="
-    echo -e "=                 ${YELLOW}Preencha as informações solicitadas abaixo${GREEN}                 ="
-    echo -e "=                                                                            ="
-    echo -e "==============================================================================${NC}"
-}
+# ------------------------------
+# INSTALAR DOCKER
+# ------------------------------
+echo "Instalando Docker..."
+curl -fsSL https://get.docker.com | sudo bash
 
-# Função para mostrar uma mensagem de etapa com barra de progresso
-function show_step() {
-    local current=$1
-    local total=5
-    local percent=$((current * 100 / total))
-    local completed=$((percent / 2))
-    
-    echo -ne "${GREEN}Passo ${YELLOW}$current/$total ${GREEN}["
-    for ((i=0; i<50; i++)); do
-        if [ $i -lt $completed ]; then
-            echo -ne "="
-        else
-            echo -ne " "
-        fi
-    done
-    echo -e "] ${percent}%${NC}"
-}
+# ------------------------------
+# INSTALAR DOCKER COMPOSE
+# ------------------------------
+echo "Instalando Docker Compose..."
+sudo apt install docker-compose -y
 
-# Mostrar banner inicial
-clear
-show_animated_logo
-show_banner
-echo ""
+# ------------------------------
+# CRIAR REDE DO TRAEFIK
+# ------------------------------
+echo "Criando rede traefik-public..."
+docker network create traefik-public || true
 
-# Solicitar informações do usuário
-show_step 1
-read -p "📧 Endereço de e-mail: " email
-echo ""
-show_step 2
-read -p "🌐 Dominio do Traefik (ex: traefik.seudominio.com): " traefik
-echo ""
-show_step 3
-read -s -p "🔑 Senha do Traefik: " senha
-echo ""
-echo ""
-show_step 4
-read -p "🌐 Dominio do Portainer (ex: portainer.seudominio.com): " portainer
-echo ""
-show_step 5
-read -p "🌐 Dominio do Edge (ex: edge.seudominio.com): " edge
-echo ""
+# ------------------------------
+# CRIAR ARQUIVOS NECESSÁRIOS
+# ------------------------------
+echo "Criando acme.json..."
+touch acme.json
+chmod 600 acme.json
 
-# Verificação de dados
-clear
-echo -e "${BLUE}📋 Resumo das Informações${NC}"
-echo -e "${GREEN}================================${NC}"
-echo -e "📧 Seu E-mail: ${YELLOW}$email${NC}"
-echo -e "🌐 Dominio do Traefik: ${YELLOW}$traefik${NC}"
-echo -e "🔑 Senha do Traefik: ${YELLOW}********${NC}"
-echo -e "🌐 Dominio do Portainer: ${YELLOW}$portainer${NC}"
-echo -e "🌐 Dominio do Edge: ${YELLOW}$edge${NC}"
-echo -e "${GREEN}================================${NC}"
-echo ""
+echo "Criando arquivo .env..."
+cat > .env <<EOF
+TRAEFIK_EMAIL=$TRAEFIK_EMAIL
+TRAEFIK_USER=$HASH
+TRAEFIK_HOST=$TRAEFIK_HOST
+EOF
 
-read -p "As informações estão certas? (y/n): " confirma1
-if [ "$confirma1" == "y" ]; then
-    clear
-    
-    # Verificar requisitos do sistema
-    check_system_requirements || exit 1
-    
-    echo -e "${BLUE}🚀 Iniciando instalação...${NC}"
-    
-    #########################################################
-    # INSTALANDO DEPENDENCIAS
-    #########################################################
-    echo -e "${YELLOW}📦 Atualizando sistema e instalando dependências...${NC}"
-    (sudo apt update -y && sudo apt upgrade -y) > /dev/null 2>&1 &
-    spinner $!
-    
-    echo -e "${YELLOW}🐳 Instalando Docker...${NC}"
-    (sudo apt install -y curl && \
-    curl -fsSL https://get.docker.com -o get-docker.sh && \
-    sudo sh get-docker.sh) > /dev/null 2>&1 &
-    spinner $!
-    
-    mkdir -p ~/Portainer && cd ~/Portainer
-    echo -e "${GREEN}✅ Dependências instaladas com sucesso${NC}"
-    sleep 2
-    clear
+# ------------------------------
+# CRIAR DOCKER COMPOSE DO TRAEFIK
+# ------------------------------
+echo "Gerando docker-compose.yml..."
 
-    #########################################################
-    # CRIANDO DOCKER-COMPOSE.YML
-    #########################################################
-    cat > docker-compose.yml <<EOL
+cat > docker-compose.yml <<'EOF'
+version: "3.9"
+
 services:
   traefik:
     container_name: traefik
-    image: "traefik:latest"
+    image: "traefik:v2.11"
     restart: always
+
     command:
+      - --log.level=ERROR
+      - --api.insecure=false
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik-public
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      - --api.insecure=true
-      - --api.dashboard=true
-      - --providers.docker
-      - --log.level=ERROR
-      - --certificatesresolvers.leresolver.acme.httpchallenge=true
-      - --certificatesresolvers.leresolver.acme.email=$email
-      - --certificatesresolvers.leresolver.acme.storage=./acme.json
-      - --certificatesresolvers.leresolver.acme.httpchallenge.entrypoint=web
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --certificatesresolvers.leresolver.acme.tlschallenge=true
+      - --certificatesresolvers.leresolver.acme.email=${TRAEFIK_EMAIL}
+      - --certificatesresolvers.leresolver.acme.storage=/acme.json
+
     ports:
       - "80:80"
       - "443:443"
+
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./acme.json:/acme.json"
-    labels:
-      - "traefik.http.routers.http-catchall.rule=hostregexp(\`{host:.+}\`)"
-      - "traefik.http.routers.http-catchall.entrypoints=web"
-      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.routers.traefik-dashboard.rule=Host(\`$traefik\`)"
-      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
-      - "traefik.http.routers.traefik-dashboard.service=api@internal"
-      - "traefik.http.routers.traefik-dashboard.tls.certresolver=leresolver"
-      - "traefik.http.middlewares.traefik-auth.basicauth.users=$senha"
-      - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth"
-  portainer:
-    image: portainer/portainer-ce:latest
-    command: -H unix:///var/run/docker.sock
-    restart: always
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(\`$portainer\`)"
-      - "traefik.http.routers.frontend.entrypoints=websecure"
-      - "traefik.http.services.frontend.loadbalancer.server.port=9000"
-      - "traefik.http.routers.frontend.service=frontend"
-      - "traefik.http.routers.frontend.tls.certresolver=leresolver"
-      - "traefik.http.routers.edge.rule=Host(\`$edge\`)"
-      - "traefik.http.routers.edge.entrypoints=websecure"
-      - "traefik.http.services.edge.loadbalancer.server.port=8000"
-      - "traefik.http.routers.edge.service=edge"
-      - "traefik.http.routers.edge.tls.certresolver=leresolver"
-volumes:
-  portainer_data:
-EOL
 
-    #########################################################
-    # CERTIFICADOS LETSENCRYPT
-    #########################################################
-    echo -e "${YELLOW}📝 Gerando certificado LetsEncrypt...${NC}"
-    touch acme.json
-    sudo chmod 600 acme.json
-    
-    #########################################################
-    # INICIANDO CONTAINER
-    #########################################################
-    echo -e "${YELLOW}🚀 Iniciando containers...${NC}"
-    (sudo docker compose up -d) > /dev/null 2>&1 &
-    spinner $!
-    
-    clear
-    show_animated_logo
-    
-    echo -e "${GREEN}🎉 Instalação concluída com sucesso!${NC}"
-    echo -e "${BLUE}📝 Informações de Acesso:${NC}"
-    echo -e "${GREEN}================================${NC}"
-    echo -e "🔗 Portainer: ${YELLOW}https://$portainer${NC}"
-    echo -e "🔗 Traefik: ${YELLOW}https://$traefik${NC}"
-    echo -e "${GREEN}================================${NC}"
-    echo ""
-    echo -e "${BLUE}💡 Dica: Aguarde alguns minutos para que os certificados SSL sejam gerados${NC}"
-    echo -e "${GREEN}🌟 Visite: https://packtypebot.com.br${NC}"
-else
-    echo -e "${RED}❌ Instalação cancelada. Por favor, inicie novamente.${NC}"
-    exit 0
-fi
+    networks:
+      - traefik-public
+
+    labels:
+      - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_HOST}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.tls.certresolver=leresolver"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_USER}"
+      - "traefik.http.routers.traefik.middlewares=traefik-auth"
+
+networks:
+  traefik-public:
+    external: true
+EOF
+
+# ------------------------------
+# SUBIR O TRAEFIK
+# ------------------------------
+echo "Subindo o Traefik..."
+docker compose up -d
+
+echo "====================================================="
+echo "Traefik instalado e rodando!"
+echo "Acesse: https://${TRAEFIK_HOST}"
+echo "Login: admin"
+echo "====================================================="

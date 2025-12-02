@@ -140,7 +140,7 @@ EOF
 # 9. VALIDAR YAML ANTES DE SUBIR
 # ---------------------------------------------
 echo "🔍 Validando docker-compose.yml..."
-docker compose config >/dev/null 2>&1
+sudo docker compose config >/dev/null 2>&1
 
 if [ $? -ne 0 ]; then
   echo "❌ ERRO: O arquivo docker-compose.yml está inválido!"
@@ -154,7 +154,7 @@ echo "✔ YAML válido."
 # 10. SUBIR TRAEFIK
 # ---------------------------------------------
 echo "🚀 Subindo Traefik..."
-docker compose up -d
+sudo docker compose up -d
 
 echo "==================================================="
 echo "🎉 TRAEFIK INSTALADO E RODANDO!"

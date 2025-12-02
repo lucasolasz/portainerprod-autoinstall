@@ -48,6 +48,7 @@ if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | sudo sh > /dev/null 2>&1 &
     spinner $!
     sudo usermod -aG docker $USER
+    newgrp docker <<EOF
 fi
 
 # Iniciar Swarm

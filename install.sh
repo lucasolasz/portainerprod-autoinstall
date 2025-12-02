@@ -21,11 +21,11 @@ spinner() {
 clear
 echo -e "${GREEN}
   _____          __      __      _            _
- |  __ \        / _|    / _|    (_)          (_)
+ |  __ \\        / _|    / _|    (_)          (_)
  | |__) | __ ___ | |_ ___| |_ _ __ _  ___  _ __
- |  ___/ '__/ _ \|  _/ _ \  _| '__| |/ _ \| '__|
+ |  ___/ '__/ _ \\|  _/ _ \\  _| '__| |/ _ \\| '__|
  | |   | | | (_) | ||  __/ | | |  | | (_) | |
- |_|   |_|  \___/|_| \___|_| |_|  |_|\___/|_|
+ |_|   |_|  \\___/|_| \\___|_| |_|  |_|\\___/|_|
 ${NC}"
 echo -e "${GREEN}       TRAEFIK + PORTAINER (SWARM PRODUÇÃO)${NC}"
 echo
@@ -42,11 +42,12 @@ echo
 read -p "Tudo certo? (y/n): " confirma
 [[ "$confirma" != "y" && "$confirma" != "Y" ]] && echo -e "${RED}Cancelado.${NC}" && exit 0
 
-# Instalar Docker se não existir
+# Instalar Docker se não existir (com sudo para compatibilidade)
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}Instalando Docker...${NC}"
     curl -fsSL https://get.docker.com | sudo sh > /dev/null 2>&1 &
     spinner $!
+    sudo usermod -aG docker $USER
 fi
 
 # Iniciar Swarm
@@ -66,10 +67,11 @@ EDGE_DOMAIN=$edge_domain
 EOF
 
 # Rede e volume
+echo -e "${YELLOW}Criando rede e volume...${NC}"
 docker network create --driver overlay swarm_network 2>/dev/null || true
 docker volume create volume_swarm_traefik_acme 2>/dev/null || true
 
-# traefik-stack.yml
+# traefik-stack.yml (YAML corrigido)
 cat > traefik-stack.yml <<'EOF'
 version: "3.8"
 services:
@@ -90,6 +92,7 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json"
       - "--log.level=INFO"
+      - "--accesslog=true"
     deploy:
       replicas: 1
       placement:
@@ -102,8 +105,12 @@ services:
         - "traefik.http.middlewares.redirect-https.redirectscheme.permanent=true"
         - "traefik.http.routers.catchall.priority=1"
     ports:
-      - target: 80; published: 80; mode: host
-      - target: 443; published: 443; mode: host
+      - target: 80
+        published: 80
+        mode: host
+      - target: 443
+        published: 443
+        mode: host
     volumes:
       - volume_swarm_traefik_acme:/acme
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -116,7 +123,7 @@ volumes:
     external: true
 EOF
 
-# portainer-stack.yml
+# portainer-stack.yml (YAML corrigido)
 cat > portainer-stack.yml <<EOF
 version: "3.8"
 services:
@@ -133,11 +140,11 @@ services:
     networks: [swarm_network]
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.portainer.rule=Host(\`${PORTAINER_DOMAIN}\`)"
+      - "traefik.http.routers.portainer.rule=Host('${PORTAINER_DOMAIN}')"
       - "traefik.http.routers.portainer.entrypoints=websecure"
       - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
       - "traefik.http.services.portainer.loadbalancer.server.port=9000"
-      - "traefik.http.routers.edge.rule=Host(\`${EDGE_DOMAIN}\`)"
+      - "traefik.http.routers.edge.rule=Host('${EDGE_DOMAIN}')"
       - "traefik.http.routers.edge.entrypoints=websecure"
       - "traefik.http.routers.edge.tls.certresolver=letsencrypt"
       - "traefik.http.services.edge.loadbalancer.server.port=8000"
@@ -156,7 +163,7 @@ volumes:
   portainer_data:
 EOF
 
-# Subir stacks
+# Subir stacks (sem silenciar para debug)
 echo -e "${YELLOW}Subindo Traefik...${NC}"
 docker stack deploy -c traefik-stack.yml traefik &
 spinner $!
@@ -167,6 +174,13 @@ echo -e "${YELLOW}Subindo Portainer + Agent...${NC}"
 docker stack deploy -c portainer-stack.yml portainer &
 spinner $!
 
+# Verificação final
+sleep 5
+echo -e "${YELLOW}Verificando stacks...${NC}"
+docker stack ls
+echo -e "${YELLOW}Containers rodando:${NC}"
+docker stack ps traefik portainer
+
 clear
 echo -e "${GREEN}Instalação concluída com sucesso!${NC}"
 echo -e "${GREEN}════════════════════════════════════${NC}"
@@ -175,3 +189,4 @@ echo -e "Edge Stack → https://$edge_domain"
 echo -e "${GREEN}════════════════════════════════════${NC}"
 echo -e "\n${BLUE}Aguarde 3-5 minutos para os certificados SSL.${NC}"
 echo -e "${BLUE}Depois acesse o Portainer e crie seu admin.${NC}"
+echo -e "${BLUE}Se algo falhou, rode: docker stack ps traefik${NC}"

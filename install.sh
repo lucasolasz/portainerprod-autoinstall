@@ -25,7 +25,7 @@ read -p "📧 Seu e-mail (LetsEncrypt): " email
 read -p "🌐 Domínio do Traefik (dashboard): " traefik
 read -p "🌐 Domínio do Portainer (UI): " portainer
 read -p "🌐 Domínio do Edge Agent: " edge
-read -s -p "🔑 Usuário e senha do dashboard (formato user:$(openssl passwd -apr1 pass)): " senha
+read -s -p "🔑 Usuário e senha do dashboard (formato user:cryptedpass): " senha
 echo ""
 
 # ============================================================
@@ -35,6 +35,26 @@ echo ""
 echo -e "${BLUE}📦 Instalando Docker...${NC}"
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh > /dev/null 2>&1
+
+# ============================================================
+# CORRIGIR PERMISSÕES DO DOCKER (Automático)
+# ============================================================
+
+echo -e "${BLUE}🔧 Ajustando permissões do Docker...${NC}"
+
+sudo systemctl restart docker
+
+# Adiciona usuário atual ao grupo docker
+sudo usermod -aG docker $USER
+
+# Ajusta permissão do socket
+sudo chmod 666 /var/run/docker.sock 2>/dev/null
+
+# Recarrega grupo docker sem reiniciar máquina
+newgrp docker <<EOF
+echo "[INFO] Testando Docker:"
+docker ps >/dev/null 2>&1 && echo "[OK] Docker funcionando." || echo "[ERRO] Docker ainda não acessível."
+EOF
 
 # ============================================================
 # INICIALIZAR SWARM

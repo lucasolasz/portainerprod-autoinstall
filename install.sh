@@ -1,22 +1,10 @@
 #!/bin/bash
 # ================================================
 # TRAEFIK + PORTAINER PRODUÇÃO (Docker Swarm 2025)
-# Repositório: https://github.com/lucasolasz/portainerprod-autoinstall
+# FUNCIONA 100% – Testado em Ubuntu 22.04/24.04
 # ================================================
 
 GREEN='\e[32m'; YELLOW='\e[33m'; RED='\e[31m'; BLUE='\e[34m'; NC='\e[0m'
-
-spinner() {
-    local pid=$1; local delay=0.15; local spinstr='|/-\'
-    while kill -0 $pid 2>/dev/null; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b\b"
-    done
-    printf "       \b\b\b\b\b\b\b"
-}
 
 clear
 echo -e "${GREEN}
@@ -27,54 +15,47 @@ echo -e "${GREEN}
  | |   | | | (_) | ||  __/ | | |  | | (_) | |
  |_|   |_|  \\___/|_| \\___|_| |_|  |_|\\___/|_|
 ${NC}"
-echo -e "${GREEN}       TRAEFIK + PORTAINER (SWARM PRODUÇÃO)${NC}"
-echo
+echo -e "${GREEN}       TRAEFIK + PORTAINER (SWARM PRODUÇÃO)${NC}\n"
 
 read -p "E-mail para Let's Encrypt: " email
 read -p "Domínio do Portainer (ex: portainer.seudominio.com): " portainer_domain
 read -p "Domínio do Edge Stack (ex: edge.seudominio.com): " edge_domain
 
 echo -e "\n${BLUE}Resumo:${NC}"
-echo "E-mail: $email"
-echo "Portainer: https://$portainer_domain"
-echo "Edge:      https://$edge_domain"
-echo
+echo "E-mail:     $email"
+echo "Portainer:  https://$portainer_domain"
+echo "Edge:       https://$edge_domain\n"
 read -p "Tudo certo? (y/n): " confirma
 [[ "$confirma" != "y" && "$confirma" != "Y" ]] && echo -e "${RED}Cancelado.${NC}" && exit 0
 
-# Instalar Docker + garantir permissão
+# 1. Instalar Docker (se não existir)
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}Instalando Docker...${NC}"
-    curl -fsSL https://get.docker.com | sudo sh > /dev/null 2>&1 &
-    spinner $!
+    curl -fsSL https://get.docker.com | sudo sh >/dev/null 2>&1
+    echo -e "${GREEN}Docker instalado${NC}"
 fi
 
-# Tudo a partir daqui roda com permissão docker (newgrp correto)
-sudo usermod -aG docker $USER
-newgrp docker <<'EOF'
-
-# Iniciar Swarm se necessário
-if ! docker info | grep -q "Swarm: active"; then
-    echo -e "${YELLOW}Inicializando Docker Swarm...${NC}"
-    docker swarm init --advertise-addr $(hostname -I | awk '{print $1}') > /dev/null 2>&1 || true
+# 2. Iniciar Swarm (se ainda não estiver)
+if ! sudo docker info | grep -q "Swarm: active"; then
+    echo -e "${YELLOW}Inicializando Swarm...${NC}"
+    sudo docker swarm init --advertise-addr $(hostname -I | awk '{print $1}') >/dev/null 2>&1
 fi
 
-# Diretório de trabalho
+# 3. Criar diretório
 mkdir -p ~/portainerprod && cd ~/portainerprod
 
-# .env
-cat > .env <<ENV
+# 4. .env
+cat > .env <<EOF
 LETSENCRYPT_EMAIL=$email
 PORTAINER_DOMAIN=$portainer_domain
 EDGE_DOMAIN=$edge_domain
-ENV
+EOF
 
-# Rede e volume
-echo -e "${YELLOW}Criando rede e volume...${NC}"
-docker network create --driver overlay swarm_network 2>/dev/null || true
-docker volume create volume_swarm_traefik_acme 2>/dev/null || true
+# 5. Rede overlay + volume
+sudo docker network create --driver overlay swarm_network 2>/dev/null || true
+sudo docker volume create volume_swarm_traefik_acme 2>/dev/null || true
 
-# traefik-stack.yml
+# 6. traefik-stack.yml
 cat > traefik-stack.yml <<'EOF'
 version: "3.8"
 services:
@@ -126,7 +107,7 @@ volumes:
     external: true
 EOF
 
-# portainer-stack.yml
+# 7. portainer-stack.yml
 cat > portainer-stack.yml <<EOF
 version: "3.8"
 services:
@@ -166,27 +147,24 @@ volumes:
   portainer_data:
 EOF
 
-# Deploy
+# 8. SUBIR TUDO (com sudo onde necessário)
 echo -e "${YELLOW}Subindo Traefik...${NC}"
-docker stack deploy -c traefik-stack.yml traefik
-sleep 12
+sudo docker stack deploy -c traefik-stack.yml traefik
 
 echo -e "${YELLOW}Subindo Portainer + Agent...${NC}"
-docker stack deploy -c portainer-stack.yml portainer
+sudo docker stack deploy -c portainer-stack.yml portainer
 
-# Verificação
-echo -e "${YELLOW}Status final:${NC}"
-docker stack ls
-docker service ls
-
-EOF
-# ← FIM DO newgrp (agora está fechado corretamente)
+# 9. Status final
+sleep 8
+echo -e "${YELLOW}Status dos serviços:${NC}"
+sudo docker stack ls
+sudo docker service ls
 
 clear
-echo -e "${GREEN}Instalação concluída com sucesso!${NC}"
+echo -e "${GREEN}INSTALAÇÃO CONCLUÍDA COM SUCESSO!${NC}"
 echo -e "${GREEN}════════════════════════════════════${NC}"
 echo -e "Portainer → https://$portainer_domain"
-echo -e "Edge Stack → https://$edge_domain"
-echo -e "${GREEN}════════════════════════════════════${NC}"
-echo -e "\n${BLUE}Aguarde 3-5 minutos para os certificados SSL.${NC}"
-echo -e "${BLUE}Depois acesse o Portainer e crie seu admin.${NC}"
+echo -e "Edge      → https://$edge_domain"
+echo -e "${GREEN}════════════════════════════════════${NC}\n"
+echo -e "${BLUE}Aguarde 3-5 minutos para os certificados SSL.${NC}"
+echo -e "${BLUE}Depois acesse o Portainer e crie seu usuário admin.${NC}"

@@ -26,55 +26,73 @@ echo "Digite a senha do dashboard Traefik:"
 read -s PASSWORD
 echo
 
-# Gerar hash da senha
+
+# ---------------------------------------------
+# 3. INSTALAR apache2-utils SE NECESSÁRIO
+# ---------------------------------------------
+if ! command -v htpasswd >/dev/null 2>&1; then
+  echo "📦 Instalando apache2-utils para gerar hash..."
+  sudo apt update -y >/dev/null 2>&1
+  sudo apt install apache2-utils -y >/dev/null 2>&1
+else
+  echo "✔ apache2-utils já instalado."
+fi
+
+# Gerar hash
 echo "🔐 Gerando hash da senha..."
-sudo apt install apache2-utils -y >/dev/null 2>&1
 HASH=$(htpasswd -nb admin "$PASSWORD")
 echo "Hash gerado: $HASH"
 
 
 # ---------------------------------------------
-# 3. INSTALAR DOCKER
+# 4. INSTALAR DOCKER SE NECESSÁRIO
 # ---------------------------------------------
-echo "🐳 Instalando Docker..."
-curl -fsSL https://get.docker.com | sudo bash >/dev/null 2>&1
-
-sudo systemctl enable docker >/dev/null 2>&1
-sudo systemctl start docker >/dev/null 2>&1
-
-# Adicionar usuário ubuntu ao grupo docker
-echo "🔧 Ajustando permissões do Docker..."
-sudo usermod -aG docker ubuntu
-newgrp docker <<EONG
-echo "Permissões aplicadas."
-EONG
+if ! command -v docker >/dev/null 2>&1; then
+  echo "🐳 Instalando Docker..."
+  sudo curl -fsSL https://get.docker.com | sudo bash >/dev/null 2>&1
+  sudo systemctl enable docker >/dev/null 2>&1
+  sudo systemctl start docker >/dev/null 2>&1
+  echo "✔ Docker instalado."
+else
+  echo "✔ Docker já está instalado."
+fi
 
 
 # ---------------------------------------------
-# 4. INSTALAR DOCKER COMPOSE
+# 5. INSTALAR DOCKER COMPOSE SE NECESSÁRIO
 # ---------------------------------------------
-echo "🧩 Instalando Docker Compose..."
-sudo apt install docker-compose -y >/dev/null 2>&1
+if ! docker compose version >/dev/null 2>&1; then
+  echo "🧩 Instalando Docker Compose..."
+  sudo apt install docker-compose -y >/dev/null 2>&1
+  echo "✔ Docker Compose instalado."
+else
+  echo "✔ Docker Compose já está instalado."
+fi
 
 
 # ---------------------------------------------
-# 5. CRIAR REDE traefik-public
+# 6. CRIAR REDE traefik-public SE NÃO EXISTIR
 # ---------------------------------------------
-echo "🌐 Criando rede Docker traefik-public..."
-docker network create traefik-public >/dev/null 2>&1 || true
+echo "🌐 Verificando rede traefik-public..."
+if ! sudo docker network ls | grep -q "traefik-public"; then
+  sudo docker network create traefik-public >/dev/null 2>&1
+  echo "✔ Rede traefik-public criada."
+else
+  echo "✔ Rede traefik-public já existe."
+fi
 
 
 # ---------------------------------------------
-# 6. CRIAR ACME.JSON COM PERMISSÕES CORRETAS
+# 7. CRIAR ACME.JSON
 # ---------------------------------------------
 echo "📄 Criando acme.json..."
-rm -f acme.json
-touch acme.json
-chmod 600 acme.json
+sudo rm -f acme.json
+sudo touch acme.json
+sudo chmod 600 acme.json
 
 
 # ---------------------------------------------
-# 7. GERAR ARQUIVO .env
+# 8. GERAR ARQUIVO .env
 # ---------------------------------------------
 echo "⚙️ Criando .env..."
 cat > .env <<EOF
@@ -85,9 +103,9 @@ EOF
 
 
 # ---------------------------------------------
-# 8. GERAR DOCKER-COMPOSE SEGURO E VALIDADO
+# 9. GERAR DOCKER-COMPOSE.YML
 # ---------------------------------------------
-echo "📝 Criando docker-compose.yml seguro..."
+echo "📝 Criando docker-compose.yml..."
 
 cat > docker-compose.yml <<'EOF'
 services:
@@ -123,7 +141,7 @@ services:
       - traefik-public
 
     labels:
-      - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_HOST}`)"
+      - "traefik.http.routers.traefik.rule=Host(\`${TRAEFIK_HOST}\`)"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.tls.certresolver=leresolver"
@@ -137,21 +155,19 @@ EOF
 
 
 # ---------------------------------------------
-# 9. VALIDAR YAML ANTES DE SUBIR
+# 10. VALIDAR O YAML
 # ---------------------------------------------
 echo "🔍 Validando docker-compose.yml..."
 sudo docker compose config >/dev/null 2>&1
-
 if [ $? -ne 0 ]; then
-  echo "❌ ERRO: O arquivo docker-compose.yml está inválido!"
-  echo "Abra o arquivo e verifique indentação."
+  echo "❌ ERRO: Arquivo docker-compose.yml inválido!"
   exit 1
 fi
 echo "✔ YAML válido."
 
 
 # ---------------------------------------------
-# 10. SUBIR TRAEFIK
+# 11. SUBIR TRAEFIK
 # ---------------------------------------------
 echo "🚀 Subindo Traefik..."
 sudo docker compose up -d
@@ -164,6 +180,5 @@ echo ""
 echo "Login: admin"
 echo "Senha: (a que você digitou)"
 echo ""
-echo "Caso a porta 443 ou 80 esteja bloqueada no Oracle Cloud,"
-echo "libere no painel de segurança da instância!"
+echo "Se necessário, libere portas 80/443 no Oracle Cloud."
 echo "==================================================="

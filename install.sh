@@ -34,27 +34,24 @@ echo ""
 
 echo -e "${BLUE}📦 Instalando Docker...${NC}"
 curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh > /dev/null 2>&1
+sudo sh get-docker.sh > /dev/null 2>&1
 
 # ============================================================
-# CORRIGIR PERMISSÕES DO DOCKER (Automático)
+# CORRIGIR PERMISSÕES DO DOCKER
 # ============================================================
 
 echo -e "${BLUE}🔧 Ajustando permissões do Docker...${NC}"
 
 sudo systemctl restart docker
 
-# Adiciona usuário atual ao grupo docker
+# adiciona usuário ao grupo docker (valerá no PRÓXIMO login)
 sudo usermod -aG docker $USER
 
-# Ajusta permissão do socket
+# liberar acesso durante este script
 sudo chmod 666 /var/run/docker.sock 2>/dev/null
 
-# Recarrega grupo docker sem reiniciar máquina
-newgrp docker <<EOF
-echo "[INFO] Testando Docker:"
-docker ps >/dev/null 2>&1 && echo "[OK] Docker funcionando." || echo "[ERRO] Docker ainda não acessível."
-EOF
+echo "[INFO] Testando docker..."
+docker ps >/dev/null 2>&1 && echo "[OK] Docker acessível." || echo "[ERRO] Docker ainda não acessível."
 
 # ============================================================
 # INICIALIZAR SWARM
@@ -67,7 +64,8 @@ docker swarm init > /dev/null 2>&1 || true
 # CRIAR DIRETÓRIO
 # ============================================================
 
-mkdir -p /opt/prod-infra
+sudo mkdir -p /opt/prod-infra
+sudo chown $USER:$USER /opt/prod-infra
 cd /opt/prod-infra
 
 # ============================================================
@@ -78,7 +76,7 @@ touch acme.json
 chmod 600 acme.json
 
 # ============================================================
-# DOCKER STACK – PRODUÇÃO COM SWARM
+# DOCKER STACK – PRODUÇÃO
 # ============================================================
 
 cat > docker-compose.yml <<EOF

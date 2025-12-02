@@ -1,64 +1,95 @@
 #!/bin/bash
 
-echo "===== CONFIGURAÇÃO AUTOMÁTICA DO TRAEFIK ====="
+echo "=============================================="
+echo "  INSTALADOR AUTOMÁTICO DO TRAEFIK (SEGURO)   "
+echo "      Otimizado para Ubuntu + Oracle Cloud     "
+echo "=============================================="
 
-# ------------------------------
-# COLETAR DADOS DO USUÁRIO
-# ------------------------------
-read -p "Digite o email para Let's Encrypt: " TRAEFIK_EMAIL
-read -p "Digite o domínio para o dashboard Traefik (ex: traefik.seudominio.com): " TRAEFIK_HOST
+# ---------------------------------------------
+# 1. VERIFICAR SE O USUÁRIO É UBUNTU
+# ---------------------------------------------
+if [ "$(whoami)" != "ubuntu" ]; then
+  echo "⚠️  ATENÇÃO: você não está rodando como usuário 'ubuntu'"
+  echo "Recomendo entrar como ubuntu e rodar novamente:"
+  echo "sudo su - ubuntu"
+  exit 1
+fi
 
-echo "Digite a senha para acessar o dashboard:"
+
+# ---------------------------------------------
+# 2. COLETAR DADOS DO USUÁRIO
+# ---------------------------------------------
+read -p "Digite o e-mail para Let's Encrypt: " TRAEFIK_EMAIL
+read -p "Digite o domínio do dashboard Traefik (ex: traefik.seudominio.com): " TRAEFIK_HOST
+
+echo "Digite a senha do dashboard Traefik:"
 read -s PASSWORD
 echo
 
-# ------------------------------
-# GERAR HASH DA SENHA
-# ------------------------------
-echo "Gerando senha criptografada..."
+# Gerar hash da senha
+echo "🔐 Gerando hash da senha..."
+sudo apt install apache2-utils -y >/dev/null 2>&1
 HASH=$(htpasswd -nb admin "$PASSWORD")
-echo "Senha gerada: $HASH"
+echo "Hash gerado: $HASH"
 
-# ------------------------------
-# INSTALAR DOCKER
-# ------------------------------
-echo "Instalando Docker..."
-curl -fsSL https://get.docker.com | sudo bash
 
-# ------------------------------
-# INSTALAR DOCKER COMPOSE
-# ------------------------------
-echo "Instalando Docker Compose..."
-sudo apt install docker-compose -y
+# ---------------------------------------------
+# 3. INSTALAR DOCKER
+# ---------------------------------------------
+echo "🐳 Instalando Docker..."
+curl -fsSL https://get.docker.com | sudo bash >/dev/null 2>&1
 
-# ------------------------------
-# CRIAR REDE DO TRAEFIK
-# ------------------------------
-echo "Criando rede traefik-public..."
-docker network create traefik-public || true
+sudo systemctl enable docker >/dev/null 2>&1
+sudo systemctl start docker >/dev/null 2>&1
 
-# ------------------------------
-# CRIAR ARQUIVOS NECESSÁRIOS
-# ------------------------------
-echo "Criando acme.json..."
+# Adicionar usuário ubuntu ao grupo docker
+echo "🔧 Ajustando permissões do Docker..."
+sudo usermod -aG docker ubuntu
+newgrp docker <<EONG
+echo "Permissões aplicadas."
+EONG
+
+
+# ---------------------------------------------
+# 4. INSTALAR DOCKER COMPOSE
+# ---------------------------------------------
+echo "🧩 Instalando Docker Compose..."
+sudo apt install docker-compose -y >/dev/null 2>&1
+
+
+# ---------------------------------------------
+# 5. CRIAR REDE traefik-public
+# ---------------------------------------------
+echo "🌐 Criando rede Docker traefik-public..."
+docker network create traefik-public >/dev/null 2>&1 || true
+
+
+# ---------------------------------------------
+# 6. CRIAR ACME.JSON COM PERMISSÕES CORRETAS
+# ---------------------------------------------
+echo "📄 Criando acme.json..."
+rm -f acme.json
 touch acme.json
 chmod 600 acme.json
 
-echo "Criando arquivo .env..."
+
+# ---------------------------------------------
+# 7. GERAR ARQUIVO .env
+# ---------------------------------------------
+echo "⚙️ Criando .env..."
 cat > .env <<EOF
 TRAEFIK_EMAIL=$TRAEFIK_EMAIL
 TRAEFIK_USER=$HASH
 TRAEFIK_HOST=$TRAEFIK_HOST
 EOF
 
-# ------------------------------
-# CRIAR DOCKER COMPOSE DO TRAEFIK
-# ------------------------------
-echo "Gerando docker-compose.yml..."
+
+# ---------------------------------------------
+# 8. GERAR DOCKER-COMPOSE SEGURO E VALIDADO
+# ---------------------------------------------
+echo "📝 Criando docker-compose.yml seguro..."
 
 cat > docker-compose.yml <<'EOF'
-version: "3.9"
-
 services:
   traefik:
     container_name: traefik
@@ -104,14 +135,35 @@ networks:
     external: true
 EOF
 
-# ------------------------------
-# SUBIR O TRAEFIK
-# ------------------------------
-echo "Subindo o Traefik..."
+
+# ---------------------------------------------
+# 9. VALIDAR YAML ANTES DE SUBIR
+# ---------------------------------------------
+echo "🔍 Validando docker-compose.yml..."
+docker compose config >/dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+  echo "❌ ERRO: O arquivo docker-compose.yml está inválido!"
+  echo "Abra o arquivo e verifique indentação."
+  exit 1
+fi
+echo "✔ YAML válido."
+
+
+# ---------------------------------------------
+# 10. SUBIR TRAEFIK
+# ---------------------------------------------
+echo "🚀 Subindo Traefik..."
 docker compose up -d
 
-echo "====================================================="
-echo "Traefik instalado e rodando!"
-echo "Acesse: https://${TRAEFIK_HOST}"
+echo "==================================================="
+echo "🎉 TRAEFIK INSTALADO E RODANDO!"
+echo "Acesse o dashboard em:"
+echo "👉 https://$TRAEFIK_HOST"
+echo ""
 echo "Login: admin"
-echo "====================================================="
+echo "Senha: (a que você digitou)"
+echo ""
+echo "Caso a porta 443 ou 80 esteja bloqueada no Oracle Cloud,"
+echo "libere no painel de segurança da instância!"
+echo "==================================================="

@@ -107,7 +107,7 @@ EOF
 # ---------------------------------------------
 echo "📝 Criando docker-compose.yml..."
 
-cat > docker-compose.yml <<'EOF'
+cat > docker-compose.yml <<EOF
 services:
   traefik:
     container_name: traefik
@@ -141,7 +141,7 @@ services:
       - traefik-public
 
     labels:
-      - "traefik.http.routers.traefik.rule=Host(\`${TRAEFIK_HOST}\`)"
+      - "traefik.http.routers.traefik.rule=Host(${TRAEFIK_HOST})"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.tls.certresolver=leresolver"
